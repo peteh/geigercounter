@@ -1,18 +1,7 @@
 #include <Arduino.h>
-// LCD connected according to Tutorial https://diyi0t.com/lcd-display-tutorial-for-arduino-and-esp8266/
+#include <LiquidCrystal_I2C.h>
 
-// include the library code:
-#include <Wire.h>
-#include "LiquidCrystal.h"
-
-// initialize the library by associating any needed LCD interface pin
-// with the arduino pin number it is connected to
-const int RS = D2, EN = D3, d4 = D5, d5 = D6, d6 = D7, d7 = D8;
-
-// if you use the NodeMCU 12E the suggested pins are
-// const int RS = 4, EN = 0, d4 = 12 , d5 = 13, d6 = 15, d7 = 3;
-
-LiquidCrystal lcd(RS, EN, d4, d5, d6, d7);
+LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 // the total count value
 static volatile unsigned long counts = 0;
@@ -29,7 +18,7 @@ static bool ledState = false;
 
 static const float SIEVERT_CONVERSION_FACTOR = 153.8;
 
-#define PIN_TICK D1
+#define PIN_TICK D5
 
 #define MQTT_HOST "mosquitto.space.revspace.nl"
 #define MQTT_PORT 1883
@@ -37,6 +26,36 @@ static const float SIEVERT_CONVERSION_FACTOR = 153.8;
 #define TOPIC_GEIGER "revspace/sensors/geiger"
 
 #define LOG_PERIOD 3
+
+static const char CHAR_SMILEY[8] = {
+    B00000,
+    B10001,
+    B00000,
+    B00000,
+    B10001,
+    B01110,
+    B00000,
+};
+
+static const char CHAR_FULL[8] = {
+    B11111,
+    B11111,
+    B11111,
+    B11111,
+    B11111,
+    B11111,
+    B11111,
+};
+
+static const char CHAR_EMPTY[8] = {
+    B11111,
+    B10001,
+    B10001,
+    B10001,
+    B10001,
+    B10001,
+    B11111,
+};
 
 // interrupt routine
 IRAM_ATTR static void tube_impulse(void)
@@ -50,10 +69,14 @@ IRAM_ATTR static void tube_impulse(void)
 void setup()
 {
   Serial.begin(115200);
-  // set up the LCD's number of columns and rows:
-  lcd.begin(16, 2);
-  // Print a message to the LCD.
-  lcd.print("CPM:");
+  // initialize LCD
+  lcd.init();
+  // turn on LCD backlight
+  lcd.backlight();
+
+  lcd.createChar(0, CHAR_SMILEY);
+  lcd.createChar(1, CHAR_FULL);
+  lcd.createChar(2, CHAR_EMPTY);
 
   // start counting
   memset(secondcounts, 0, sizeof(secondcounts));
@@ -64,8 +87,34 @@ void setup()
   attachInterrupt(digitalPinToInterrupt(PIN_TICK), tube_impulse, FALLING);
 }
 
+unsigned int calculateDanger(float usieverth, float dangerLevel)
+{
+  return usieverth / dangerLevel;
+}
+
+void printDanger(float usieverth)
+{
+  unsigned int maxdanger = 5;
+  // 0: < 0.3 average dose in europe is around 0.1 to 0.3 uSv/h
+  // 5: 5times the average of Europe
+  unsigned int danger = calculateDanger(usieverth, 0.1);
+  if (danger > maxdanger)
+  {
+    danger = maxdanger;
+  }
+  for (unsigned int i = 0; i < danger; i++)
+  {
+    lcd.write(1);
+  }
+  for (unsigned int i = danger; i < maxdanger; i++)
+  {
+    lcd.write(2);
+  }
+}
+
 void loop()
 {
+
   // update the circular buffer every second
   unsigned long int second = millis() / 1000;
   unsigned long int secidx = second % 60;
@@ -89,16 +138,21 @@ void loop()
       cpm += secondcounts[i];
     }
 
-    lcd.setCursor(0, 1);
-    lcd.print(cpm);
-    float msievert = cpm/SIEVERT_CONVERSION_FACTOR;
+    float usievert = cpm / SIEVERT_CONVERSION_FACTOR;
 
-    lcd.setCursor(10, 1);
-    lcd.print(msievert, 3);
+    lcd.setCursor(0, 0);
+    printDanger(usievert);
+
+    lcd.setCursor(9, 0);
+    lcd.printf("%3d cpm", cpm);
+    
+
+    lcd.setCursor(5, 1);
+    lcd.printf("%2.3f uSv/h", usievert);
   }
   // set the cursor to column 0, line 1
   // (note: line 1 is the second row, since counting begins with 0):
-  
+
   // print the number of seconds since reset:
   digitalWrite(LED_BUILTIN, !(millis() - lastTick < 100));
   delay(10);
