@@ -73,6 +73,7 @@ void setup()
   lcd.init();
   // turn on LCD backlight
   lcd.backlight();
+  
 
   lcd.createChar(0, CHAR_SMILEY);
   lcd.createChar(1, CHAR_FULL);
@@ -114,7 +115,6 @@ void printDanger(float usieverth)
 
 void loop()
 {
-
   // update the circular buffer every second
   unsigned long int second = millis() / 1000;
   unsigned long int secidx = second % 60;
